@@ -45,3 +45,5 @@ Temporary Items
 #NY
 *.cbp
 *.layout
+*.txt
+main.cpp
