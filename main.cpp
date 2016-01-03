@@ -1,39 +1,29 @@
-/* Extension of Testing9 - Add struct for image file info
- * Read test set of Image file names into array and parse into struct
- *
- * Functionality to read folders in sign list directory,
- * switch to a subdirectory and read all source names into
- * second array
- * Added some error handling for memory allocation
+/* Natalie Younger, 2015
+ * Program to read image files within hierarchical file structure
+ * and enter into SQL table.
  *
  * Error checking to add:
  * Need to check array length when copying chars to imgAttributes members
+ * ???
  *
+ * To make SQL connector work with CodeBlocks:
  * MySQL
  * Project > Build Options > Linker Settings
  *      C:\Program Files\MariaDB 10.0\MariaDB Connector C 64-bit\lib\libmariadb.lib
  * Project > Build Options > Search Directories (Compiler and Linker)
  *      C:\Program Files\MariaDB 10.0\MariaDB Connector C 64-bit\lib
  *      C:\Program Files\MariaDB 10.0\MariaDB Connector C 64-bit\include
- * Must include:
+ *
+ * List of includes required for basic functionality:
  * #include <stdio.h>
  * #include <windows.h>
  * #include <mysql.h>
- * AND my_global.h? - screws up ALL KINDS of definitions
+ * But NOT my_global.h? (messes up ALL KINDS of definitions)
  *
  * Must initialize connection pointer
-
-
- TO FIX: WEIRD AUTOINCREMENT, JPGS SAVED AS PNGS (OPEN WITH IRFAN) - unexpected matches from
- M17 double reed leaf = m17 (single reed leaf) - rename double folder to M17x
-
- Can reset autoincrement in Heidi by: SELECT MAX( `autoincr_column` ) FROM `table` ; ALTER TABLE `table` AUTO_INCREMENT = number;
- where "number" is the maxvalue +1 (if delete all, just reset to 0)
  */
 
-//#include "my_global.h"
-
-#include <winsock2.h> //due to warning thrown up by including my_global.h below (just above mysql.h)
+#include <winsock2.h>
 
 #include <windows.h>
 #include <stdio.h>
@@ -43,25 +33,21 @@
 #include <iostream>
 #include <string>
 #include <sstream>
-//highest location my_global.h doesn't cause cascade of errors
 #include <string.h>
 
-//#include "changeDir2.h"
-//#include "listFiles.h"
-
-//#include <typeinfo>
-//#include <my_global.h>
 #include <mysql.h>
 
 using namespace std;
 
 struct imgAttributes
+/* Struct to collect file attributes for entry in SQL table
+ */
 {
-    char gardID[5]          = {0};
-    char gardCat[50]        = {0};
-    char signName[100]      = {0};
-    char src[10]            = {0};
-    char sysFileName[50]    = {0};
+    char col1[5]          	= {0};
+    char col2[50]        	= {0};
+    char col3[100]      	= {0};
+    char col4[10]           = {0};
+    char col5[50]    		= {0};
     char fullPath[MAX_PATH] = {0};
 };
 
@@ -72,10 +58,10 @@ void populateArray(char *currentPath, char *fileList [], int arraySize, HANDLE h
 void printArray(char *fileList [], int arraySize);
 void freeMem(char *fileList [], int arraySize);
 void printImgAttributes(imgAttributes *imgfile);
-void setGardinerLabels(imgAttributes *imgfile, char *signNameDir);
-void setSource(imgAttributes *imgfile, char *srcNameDir);
+void setCol23Labels(imgAttributes *imgfile, char *LvlXDir);
+void setCol4(imgAttributes *imgfile, char *LvlYDir);
 void setImgPath(imgAttributes *imgfile, int maxLength, char *currentPath);
-void setSysName(imgAttributes *imgfile, char *fileName);
+void setCol5(imgAttributes *imgfile, char *fileName);
 void setZeroAttributes(imgAttributes *imgfile);
 void finish_with_error(MYSQL *con);
 
@@ -83,40 +69,31 @@ int main()
 {
     WIN32_FIND_DATA ffd;
     HANDLE hFind = INVALID_HANDLE_VALUE;
-    char basePath[] =
-        "C:\\Users\\USER\\Documents\\Handwritten Hieroglyphs\\Sign Database";
-    // Set up arrays containing list
-    // Set path to upper level directories (containing sign names and codes)
-    char currentPath[MAX_PATH] = {0};
-    char tempPath[MAX_PATH] = {0};
+    char basePath[] = "C:\\Users\\USER\\Documents\\Full Database";
+    char currentPath[MAX_PATH] = {0}; 	//For tracking current location within
+										// file structure
+    char tempPath[MAX_PATH] = {0};	//For direct use with "FindFile" functions
     setPath(currentPath, basePath, MAX_PATH, TEXT(""));
     StringCchCopy(tempPath, MAX_PATH, currentPath);
     StringCchCat(tempPath, MAX_PATH, TEXT("\\*"));
 
-    // Find number of folders in the Sign Database Directory
-    // (including "." and "..")
-    int numSignDirs = 0;
-    numSignDirs = countFiles(tempPath, hFind, &ffd);
+    // Find number of folders(Level 1) in the Full Database Directory
+    // includes "."(current location) and ".." (up a level)
+    int numLvl1Dirs = 0;
+    numLvl1Dirs = countFiles(tempPath, hFind, &ffd);
+    char *Lvl1Array [numLvl1Dirs - 2] = {0};
+    populateArray(tempPath, Lvl1Array, numLvl1Dirs, hFind, &ffd);
 
-    char *signListArray [numSignDirs - 2] = {0};
-    populateArray(tempPath, signListArray, numSignDirs, hFind, &ffd);
-    //cout << "SIGN LIST\n";
-    //printArray(signListArray, (numSignDirs - 2));
-
-    // Change to first subdirectory
-    setPath(currentPath, basePath, MAX_PATH, signListArray[0]);
+    // Change to first Level 1 directory
+    setPath(currentPath, basePath, MAX_PATH, Lvl1Array[0]);
     StringCchCopy(tempPath, MAX_PATH, currentPath);
     StringCchCat(tempPath, MAX_PATH, TEXT("\\*"));
 
-    // Find number of folders in Sources Subdirectory
-    int numSrcDirs = 0;
-    numSrcDirs = countFiles(tempPath, hFind, &ffd);
-
-    char *srcListArray [numSrcDirs - 2] = {0};
-    populateArray(tempPath, srcListArray, numSrcDirs, hFind, &ffd);
-    //cout << "\nSOURCES\n";
-    //printArray(srcListArray, (numSrcDirs - 2));
-    // end setup of signListArray and srcListArray - functionalize this?
+    // Find number of folders in its subdirectory (Level 2)
+    int numLvl2Dirs = 0;
+    numLvl2Dirs = countFiles(tempPath, hFind, &ffd);
+    char *Lvl2Array [numLvl2Dirs - 2] = {0};
+    populateArray(tempPath, Lvl2Array, numLvl2Dirs, hFind, &ffd);
 
     // Connect to MySQL
     MYSQL *con = mysql_init(NULL);
@@ -137,22 +114,24 @@ int main()
     setPath(currentPath, basePath, MAX_PATH, TEXT(""));
     StringCchCopy(tempPath, MAX_PATH, currentPath);
     StringCchCat(tempPath, MAX_PATH, TEXT("\\*"));
-
+	
+	// Temporary struct for organizing info for DB entry
+	// Overwritten after every loop
     imgAttributes testFile;
-
+	
+	// Track number of files already in database
+	// Assuming program is run on the same file structure multiple times
+	// after adding more image files, it avoids re-adding files already present in DB
     int numDBmatches = 0;
     int dbcount = 0;
 
-    for(int i = 0; i < (numSignDirs - 2); i++)
+    for(int i = 0; i < (numLvl1Dirs - 2); i++)
     {
-//        setPath(currentPath, basePath, MAX_PATH, signListArray[i]);
-//        StringCchCopy(tempPath, MAX_PATH, currentPath);
-//        StringCchCat(tempPath, MAX_PATH, TEXT("\\*"));
 
-        for(int j = 0; j < (numSrcDirs - 2); j++)
+        for(int j = 0; j < (numLvl2Dirs - 2); j++)
         {
-            setPath(currentPath, basePath, MAX_PATH, signListArray[i]);
-            setPath(currentPath, currentPath, MAX_PATH, srcListArray[j]);
+            setPath(currentPath, basePath, MAX_PATH, Lvl1Array[i]);
+            setPath(currentPath, currentPath, MAX_PATH, Lvl2Array[j]);
             StringCchCopy(tempPath, MAX_PATH, currentPath);
             StringCchCat(tempPath, MAX_PATH, TEXT("\\*"));
 
@@ -164,16 +143,15 @@ int main()
                 if(k < 2)
                 {
                     k++;
-                    //continue;
                 }
                 else
                 {
 
                     setPath(imagePath, currentPath, MAX_PATH, ffd.cFileName);
-                    setGardinerLabels(&testFile, signListArray[i]);
-                    setSource(&testFile, srcListArray[j]);
+                    setCol23Labels(&testFile, Lvl1Array[i]);
+                    setCol4(&testFile, Lvl2Array[j]);
                     setImgPath(&testFile, MAX_PATH, imagePath);
-                    setSysName(&testFile, ffd.cFileName);
+                    setCol5(&testFile, ffd.cFileName);
 
                     FILE *fp = fopen(testFile.fullPath, "rb");
                     if (fp == NULL)
@@ -254,48 +232,41 @@ int main()
                     char *chunk = new char [2*data_size+1];
                     mysql_real_escape_string(con, chunk, data, data_size);
 
-                    size_t id_len = strlen(testFile.gardID);
-                    size_t cat_len = strlen(testFile.gardCat);
-                    size_t sname_len = strlen(testFile.signName);
-                    size_t src_len = strlen(testFile.src);
-                    size_t fname_len = strlen(testFile.sysFileName);
+                    size_t 1_len = strlen(testFile.col1);
+                    size_t 2_len = strlen(testFile.col2);
+                    size_t 3_len = strlen(testFile.col3);
+                    size_t 4_len = strlen(testFile.col4);
+                    size_t 5_len = strlen(testFile.col5);
 
-                    char st2[] = "SELECT * from sign_list WHERE GardID = '%s' AND Sys_FileName = '%s' AND Src = '%s'";
+                    char st2[] = "SELECT * from table WHERE Col1 = '%s' AND Col5 = '%s' AND Col4 = '%s'";
                     size_t st2_len = strlen(st2);
-                    char *query2 = new char [st2_len + id_len + fname_len + src_len];
-                    //*query2 = {0};
-                    int len2 = snprintf(query2, (st2_len + id_len + fname_len + src_len), st2, testFile.gardID,
-                                            testFile.sysFileName, testFile.src);
+                    char *query2 = new char [st2_len + id_len + fname_len + 4_len];
+                    int len2 = snprintf(query2, (st2_len + id_len + fname_len + 4_len), st2, testFile.col1, testFile.col5, testFile.col4);
 
-                    if (mysql_query (con, query2)) //means if this statement executes without error:
-                    {                               //DO NOT execute this block
-                        finish_with_error(con); //check if this file already in table
+                    if (mysql_query (con, query2)) // If this statement executes without error:
+                    {                              // DO NOT execute this block
+                        finish_with_error(con); // Check if this file already in table
                     }
 
                     MYSQL_RES *result = mysql_store_result(con);
                     MYSQL_ROW row;
                     row = mysql_fetch_row(result);
-                    if (row) //if data in rows
+                    if (row) //If data is found in rows
                     {
-                        //std::cout << "found a match!\n";
-                        //printImgAttributes(&testFile);
-                        //cout << "\n";
                         numDBmatches++;
                     }
                     else if (!row)
                     {
-                        //std::cout << "no matches!\n";
-                        char *st = "INSERT INTO sign_list (GardID, Gard_Cat, Sign_Name, Src, Sys_FileName, Img) VALUES('%s', '%s', '%s', '%s', '%s', '%s')";
+                        char *st = "INSERT INTO table (Col1, Col2, Col3, Col4, Col5, Img) VALUES('%s', '%s', '%s', '%s', '%s', '%s')";
                         size_t st_len = strlen(st);
-                        int tot_len = st_len + (2*data_size+1) + id_len + cat_len +
-                                            sname_len + src_len + fname_len;
+                        int tot_len = st_len + (2*data_size+1) + 1_len + 2_len +
+                                            3_len + 4_len + 5_len;
                         char *query = new char [tot_len];
                         //*query2 = {0};
-                        int len = snprintf(query, tot_len, st, testFile.gardID, testFile.gardCat,
-                                    testFile.signName, testFile.src, testFile.sysFileName, chunk);
-                        if (mysql_real_query (con, query, len)) //means if you DO find duplicates:
-                        {
-                            //std::cout << "did this work?\n";        //execute this block
+                        int len = snprintf(query, tot_len, st, testFile.col1, testFile.col2,
+                                    testFile.col3, testFile.col4, testFile.col5, chunk);
+                        if (mysql_real_query (con, query, len)) // If you DO find duplicates:
+                        {										// execute this block
                             finish_with_error(con);
                         }
                         delete[] query;
@@ -308,28 +279,16 @@ int main()
                     delete[] chunk; delete[] query2;
                     mysql_free_result(result);
 
-//                    if(!(k%100))
-//                    {
-//                        cout << "\nIMAGE ATTRIBUTES\n";
-//                        printImgAttributes(&testFile);
-//                    }
-
-                    setZeroAttributes(&testFile);
+                    // Blank out the struct
+					setZeroAttributes(&testFile);
 
                     k++;
                     dbcount++;
+					// Keep track that the program is still running
                     if (!(dbcount%50))
                     {
                         cout << "Read " << dbcount << " files.\n";
                     }
-
-//                    char userInput = '0';
-//                    while(userInput != 'y' && userInput != 'n')
-//                    {
-//                        cout << "Continue? (y/n) ";
-//                        cin >> userInput;
-//                        if(userInput == 'n') exit(1);
-//                    }
                 }
             }
             while (FindNextFile(hFind, &ffd) != 0);
@@ -338,11 +297,9 @@ int main()
 
     // Delete allocated memory
     mysql_close(con);
-    freeMem(signListArray, (numSignDirs - 2));
-    freeMem(srcListArray, (numSrcDirs - 2));
-//    freeMem(imgArray, (numImages - 2));
+    freeMem(Lvl1Array, (numLvl1Dirs - 2));
+    freeMem(Lvl2Array, (numLvl2Dirs - 2));
     cout << "Number of Database entries matched: " << numDBmatches << "\n";
-    cout << "Hello world!" << endl;
     return 0;
 }
 
@@ -365,8 +322,6 @@ void setPath(char *newPath, char *origPath, int maxLength, char *extension)
         StringCchCat(newPath, maxLength, TEXT("\\"));
         StringCchCat(newPath, maxLength, extension);
     }
-
-    //StringCchCat(newPath, maxLength, TEXT("\\*")); // Add termination
 }
 
 int countFiles(char *currentPath, HANDLE h, WIN32_FIND_DATA *findData)
@@ -436,76 +391,49 @@ void freeMem(char *fileList [], int arraySize)
 void printImgAttributes(imgAttributes *imgfile)
 {
     cout << "Image file attributes for database: \n";
-    cout << "Image File Name: "     << imgfile->sysFileName << "\n";
+    cout << "Col4 Value: "     		<< imgfile->col4 		<< "\n";
     cout << "Location on Disk: "    << imgfile->fullPath    << "\n";
-    cout << "Gardiner Code: "       << imgfile->gardID      << "\n";
-    cout << "Gardiner Category: "   << imgfile->gardCat     << "\n";
-    cout << "Sign Name: "           << imgfile->signName    << "\n";
-    cout << "Source Text: "         << imgfile->src         << "\n";
+    cout << "Col1 Value: "       	<< imgfile->col1      	<< "\n";
+    cout << "Col2 Value: "   		<< imgfile->col2     	<< "\n";
+    cout << "Col3 Value: "          << imgfile->col3    	<< "\n";
+    cout << "Col4 Value: "         	<< imgfile->col4        << "\n";
 }
 
-void setGardinerLabels (imgAttributes *imgfile, char *signNameDir)
+void setCol23Labels (imgAttributes *imgfile, char *LvlXDir)
 {
     int i = 0;
-    while(signNameDir[i] != '-')
+    while(LvlXDir[i] != '-') // Parse dir name "AAA-AAAA"
     {
-        if(i == 0) //if !j?
+        if(i == 0)
         {
-            switch (signNameDir[i])
+            switch (LvlXDir[i])
             {
-                case 'A':
-                {
-                    if(signNameDir[i+1] == 'a')
-                        StringCchCopy(imgfile->gardCat, 50, "Unclassified");
-                    else
-                        StringCchCopy(imgfile->gardCat, 50, "Man_and_his_Occupations");
-                    break;
-                }
-                case 'B': StringCchCopy(imgfile->gardCat, 50, "Woman_and_her_Occupations"); break;
-                case 'C': StringCchCopy(imgfile->gardCat, 50, "Anthropomorphic_Deities"); break;
-                case 'D': StringCchCopy(imgfile->gardCat, 50, "Parts_of_the_Human_Body"); break;
-                case 'E': StringCchCopy(imgfile->gardCat, 50, "Mammals"); break;
-                case 'F': StringCchCopy(imgfile->gardCat, 50, "Parts_of_Mammals"); break;
-                case 'G': StringCchCopy(imgfile->gardCat, 50, "Birds"); break;
-                case 'H': StringCchCopy(imgfile->gardCat, 50, "Parts_of_Birds"); break;
-                case 'I': StringCchCopy(imgfile->gardCat, 50, "Amphibious_Animals,_Reptiles,_etc."); break;
-                case 'K': StringCchCopy(imgfile->gardCat, 50, "Fish_and_Parts_of_Fish"); break;
-                case 'L': StringCchCopy(imgfile->gardCat, 50, "Invertebrates_and_Lesser_Animals"); break;
-                case 'M': StringCchCopy(imgfile->gardCat, 50, "Trees_and_Plants"); break;
-                case 'N': StringCchCopy(imgfile->gardCat, 50, "Sky,_Earth,_Water"); break;
-                case 'O': StringCchCopy(imgfile->gardCat, 50, "Buildings,_Parts_of_Buildings,_etc."); break;
-                case 'P': StringCchCopy(imgfile->gardCat, 50, "Ships_and_Parts_of_Ships"); break;
-                case 'Q': StringCchCopy(imgfile->gardCat, 50, "Domestic_and_Funerary_Furniture"); break;
-                case 'R': StringCchCopy(imgfile->gardCat, 50, "Temple_Furniture_and_Sacred_Emblems"); break;
-                case 'S': StringCchCopy(imgfile->gardCat, 50, "Crowns,_Dress,_Staves,_etc."); break;
-                case 'T': StringCchCopy(imgfile->gardCat, 50, "Warfare,_Hunting,_Butchery"); break;
-                case 'U': StringCchCopy(imgfile->gardCat, 50, "Agriculture,_Crafts,_and_Professions"); break;
-                case 'V': StringCchCopy(imgfile->gardCat, 50, "Rope,_Fiber,_Baskets,_Bags,_etc."); break;
-                case 'W': StringCchCopy(imgfile->gardCat, 50, "Vessels_of_Stone_and_Earthenware"); break;
-                case 'X': StringCchCopy(imgfile->gardCat, 50, "Loaves_and_Cakes"); break;
-                case 'Y': StringCchCopy(imgfile->gardCat, 50, "Writings,_Games,_Music"); break;
-                case 'Z': StringCchCopy(imgfile->gardCat, 50, "Strokes"); break;
+				// Switch statement to encode info not directly provided in
+				// directory names
+                case 'A': StringCchCopy(imgfile->col2, 50, "Ripe"); break;
+                case 'B': StringCchCopy(imgfile->col2, 50, "Rotten"); break;
+				//...etc.
                 default: cout << "Incorrect Category Label\n"; exit (1);
             }
         }
-        imgfile->gardID[i] = signNameDir[i];
+        imgfile->col2[i] = LvlXDir[i];
         i++;
     }
     i++; // skip "-"
     int fix = i; // adjust following indexing
-    while(signNameDir[i])
+    while(LvlXDir[i])
     {
-        imgfile->signName[i - fix] = signNameDir[i];
+        imgfile->col3[i - fix] = LvlXDir[i];
         i++;
     }
 }
 
-void setSource(imgAttributes *imgfile, char *srcNameDir)
+void setCol4(imgAttributes *imgfile, char *LvlYDir)
 {
     int i = 0;
-    while(srcNameDir[i])
+    while(LvlYDir[i])
     {
-        imgfile->src[i] = srcNameDir[i];
+        imgfile->col4[i] = LvlYDir[i];
         i++;
     }
 }
@@ -515,25 +443,23 @@ void setImgPath(imgAttributes *imgfile, int maxLength, char *currentPath)
     StringCchCopy(imgfile->fullPath, maxLength, currentPath);
 }
 
-void setSysName(imgAttributes *imgfile, char *fileName)
+void setCol5(imgAttributes *imgfile, char *fileName)
 {
     int i = 0;
     while(fileName[i])
     {
-        imgfile->sysFileName[i] = fileName[i];
+        imgfile->col5[i] = fileName[i];
         i++;
     }
 }
 
 void setZeroAttributes(imgAttributes *imgfile)
 {
-    //char *begin = imgfile->gardID;
-    //char *end = begin + sizeof(imgfile->gardID);
-    fill(imgfile->gardID, (imgfile->gardID + sizeof(imgfile->gardID)), 0);
-    fill(imgfile->gardCat, (imgfile->gardCat + sizeof(imgfile->gardCat)), 0);
-    fill(imgfile->signName, (imgfile->signName + sizeof(imgfile->signName)), 0);
-    fill(imgfile->src, (imgfile->src + sizeof(imgfile->src)), 0);
-    fill(imgfile->sysFileName, (imgfile->sysFileName + sizeof(imgfile->sysFileName)), 0);
+    fill(imgfile->col1, (imgfile->col1 + sizeof(imgfile->col1)), 0);
+    fill(imgfile->col2, (imgfile->col2 + sizeof(imgfile->col2)), 0);
+    fill(imgfile->col3, (imgfile->col3 + sizeof(imgfile->col3)), 0);
+    fill(imgfile->col4, (imgfile->col4 + sizeof(imgfile->col4)), 0);
+    fill(imgfile->col5, (imgfile->col5 + sizeof(imgfile->col5)), 0);
     fill(imgfile->fullPath, (imgfile->fullPath + sizeof(imgfile->fullPath)), 0);
 }
 
